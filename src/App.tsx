@@ -4,45 +4,21 @@ import { saveScore } from './services/storageService';
 import { GameState } from '../types';
 import { LoadingScreen } from './components/LoadingScreen';
 import { RoundCard } from './components/RoundCard';
-import { LoginPage } from './components/LoginPage';
-import { AdminDashboard } from './components/AdminDashboard';
-import { Trophy, ArrowRight, RotateCcw, Crosshair, Zap, LogOut } from 'lucide-react';
+// REMOVED: LoginPage and AdminDashboard imports
+import { Trophy, ArrowRight, RotateCcw, Zap } from 'lucide-react';
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>({
-    status: 'LOGIN',
+    status: 'IDLE', // CHANGED: Starts directly at Landing Page
     rounds: [],
     loadingProgress: 0,
     score: 0,
-    teamName: ''
+    teamName: 'Guest Agent' // CHANGED: Default name since there is no login
   });
 
   const roundsEndRef = useRef<HTMLDivElement>(null);
 
-  const handleLogin = useCallback((teamName: string) => {
-    setGameState(prev => ({ 
-      ...prev, 
-      status: 'IDLE',
-      teamName: teamName
-    }));
-  }, []);
-
-  const handleAdminLogin = useCallback(() => {
-    setGameState(prev => ({ 
-      ...prev, 
-      status: 'ADMIN' 
-    }));
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    setGameState(prev => ({
-      ...prev,
-      status: 'LOGIN',
-      rounds: [],
-      score: 0,
-      teamName: ''
-    }));
-  }, []);
+  // REMOVED: handleLogin, handleAdminLogin, handleLogout
 
   // Initialize Game
   const startGame = useCallback(async () => {
@@ -61,7 +37,6 @@ export default function App() {
       }));
     } catch (error) {
       console.error("Failed to start game", error);
-      // Fallback
       setGameState(prev => ({ ...prev, status: 'IDLE' }));
     }
   }, []);
@@ -96,29 +71,32 @@ export default function App() {
 
   // Handle Submit / Finish
   const finishGame = useCallback(() => {
-    // Save Score to Local Storage
+    // Save Score to Local Storage (Optional now since there is no unique user)
     setGameState(prev => {
-      if (prev.teamName) {
-        saveScore(prev.teamName, prev.score);
-      }
+      saveScore(prev.teamName, prev.score);
       return { ...prev, status: 'FINISHED' };
     });
     
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  // Reset Game to Landing Page
+  const resetGame = useCallback(() => {
+    setGameState(prev => ({
+      ...prev,
+      status: 'IDLE',
+      rounds: [],
+      score: 0
+    }));
+  }, []);
+
   // Calculate completion
   const completedRounds = gameState.rounds.filter(r => r.userChoiceId !== null).length;
   const isAllAnswered = completedRounds === 5;
 
-  // VIEW ROUTING
-  if (gameState.status === 'LOGIN') {
-    return <LoginPage onLogin={handleLogin} onAdminLogin={handleAdminLogin} />;
-  }
-
-  if (gameState.status === 'ADMIN') {
-    return <AdminDashboard onLogout={handleLogout} />;
-  }
+  // --- VIEW ROUTING ---
+  
+  // REMOVED: Checks for 'LOGIN' and 'ADMIN'
 
   if (gameState.status === 'GENERATING') {
     return <LoadingScreen progress={gameState.loadingProgress} />;
@@ -138,9 +116,6 @@ export default function App() {
 
            <div className="mt-12 space-y-4">
               <h2 className="text-2xl font-bold uppercase text-gray-400 tracking-widest">Mission Complete</h2>
-              <div className="inline-block bg-[#1F1B2E] border-2 border-[#00FF9D] px-6 py-2 rounded-full mb-4">
-                 <p className="text-[#00FF9D] font-mono uppercase text-sm">Team: {gameState.teamName}</p>
-              </div>
               <h1 className="text-6xl md:text-8xl font-heading text-white retro-text-shadow">
                 {gameState.score} / 5
               </h1>
@@ -165,19 +140,11 @@ export default function App() {
 
            <div className="flex flex-col gap-4">
              <button 
-               onClick={startGame}
+               onClick={resetGame}
                className="w-full game-btn bg-[#00FF9D] text-black font-heading text-2xl py-4 hover:bg-[#00e68d] flex items-center justify-center gap-3 uppercase tracking-wider"
              >
                <RotateCcw size={28} />
                Reboot System
-             </button>
-             
-             <button 
-               onClick={handleLogout}
-               className="w-full bg-transparent text-gray-500 font-mono text-sm py-2 hover:text-white flex items-center justify-center gap-2"
-             >
-               <LogOut size={14} />
-               Exit to Terminal
              </button>
            </div>
         </div>
@@ -211,11 +178,6 @@ export default function App() {
               Identify the <span className="text-[#00FF9D] font-bold">AI IMPOSTOR</span>.<br/>
               Distinguish hallucinations from <span className="text-[#FF00E6] font-bold">HUMAN SOUL</span>.
             </p>
-            {gameState.teamName && (
-              <div className="mt-4 pt-4 border-t border-gray-700 text-[#FF00E6] font-mono text-sm uppercase">
-                  Operative: {gameState.teamName}
-              </div>
-            )}
           </div>
 
           <button 
@@ -228,10 +190,6 @@ export default function App() {
           </button>
           
           <div className="mt-12 flex gap-8 text-gray-500 font-mono text-xs uppercase">
-             <button onClick={handleLogout} className="flex items-center gap-2 hover:text-white transition-colors">
-               <LogOut size={14} />
-               <span>Logout</span>
-             </button>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-[#00FF9D] rounded-full animate-ping"></div>
               <span>System Online</span>
@@ -252,7 +210,6 @@ export default function App() {
              <div className="bg-[#FF00E6] w-8 h-8 flex items-center justify-center border-2 border-black font-bold text-sm">R</div>
              <div className="hidden sm:block">
                <span className="font-heading text-xl tracking-tighter">REAL<span className="text-[#00FF9D]">VS</span>AI</span>
-               <div className="text-[10px] text-gray-400 font-mono -mt-1 uppercase">Team: {gameState.teamName}</div>
              </div>
           </div>
           
@@ -280,7 +237,7 @@ export default function App() {
       <div className="container mx-auto px-4 py-8 flex-1">
         <div className="text-center mb-12">
            <div className="inline-block border-2 border-[#00FF9D] text-[#00FF9D] px-4 py-1 font-mono text-xs uppercase mb-2 bg-[#00FF9D]/10">
-              Current Objective
+             Current Objective
            </div>
            <h2 className="text-3xl md:text-4xl font-heading text-white uppercase retro-text-shadow">
              Locate the AI Image
@@ -312,7 +269,7 @@ export default function App() {
               : 'bg-gray-800 text-gray-500 translate-y-12 opacity-0'}
           `}
         >
-          Submit Data
+          Submit Results
         </button>
       </div>
     </div>

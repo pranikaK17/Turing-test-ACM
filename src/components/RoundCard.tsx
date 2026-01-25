@@ -1,5 +1,5 @@
 import React from 'react';
-import { GameRound } from '../types';
+import { GameRound } from '../../types';
 import { Check, X, Bot, Paintbrush2 } from 'lucide-react';
 
 interface RoundCardProps {
