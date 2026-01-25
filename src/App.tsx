@@ -92,7 +92,7 @@ export default function App() {
 
   // Calculate completion
   const completedRounds = gameState.rounds.filter(r => r.userChoiceId !== null).length;
-  const isAllAnswered = completedRounds === 5;
+  const isAllAnswered = completedRounds === 6;
 
   // --- VIEW ROUTING ---
   
@@ -123,7 +123,7 @@ if (gameState.status === 'FINISHED') {
            {/* Huge Score Display */}
            <div className="text-center mb-6">
               <h1 className="text-[120px] md:text-[180px] font-heading leading-none text-white retro-text-shadow select-none">
-                {gameState.score}<span className="text-[#FF00E6] text-[0.8em]">/</span>5
+                {gameState.score}<span className="text-[#FF00E6] text-[0.8em]">/</span>6
               </h1>
            </div>
            
@@ -131,7 +131,7 @@ if (gameState.status === 'FINISHED') {
            <div className="mb-16 text-center">
               <p className={`text-2xl md:text-3xl font-heading uppercase tracking-[0.2em] 
                 ${gameState.score >= 4 ? 'text-[#00FF9D]' : gameState.score >= 3 ? 'text-yellow-400' : 'text-[#FF00E6]'}`}>
-                {gameState.score === 5 ? ">> GODLIKE ACCURACY <<" :
+                {gameState.score === 6 ? ">> GODLIKE ACCURACY <<" :
                  gameState.score === 4 ? ">> HIGHLY PROFICIENT <<" :
                  gameState.score === 3 ? ">> ACCEPTABLE MARGIN <<" :
                  ">> SYSTEM COMPROMISED <<"}
@@ -173,7 +173,7 @@ if (gameState.status === 'FINISHED') {
            </button>
 
            <div className="mt-12 text-gray-600 font-mono text-[10px] uppercase tracking-[0.3em] animate-pulse">
-              End of Line_
+              End of Game
            </div>
         </div>
       </div>
@@ -259,7 +259,7 @@ if (gameState.status === 'FINISHED') {
                 <div className="w-full h-3 bg-gray-800 border border-gray-600 mt-1">
                    <div 
                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
-                     style={{ width: `${(Math.min(completedRounds, 5) / 5) * 100}%` }}
+                     style={{ width: `${(Math.min(completedRounds, 6) / 6) * 100}%` }}
                    ></div>
                 </div>
              </div>

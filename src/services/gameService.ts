@@ -3,6 +3,14 @@ import childrenAI from "../images/childrenAI.jpeg";
 import childrenREAL from "../images/childrenREAL.jpeg";
 import trainAI from "../images/trainAI.jpeg";
 import trainREAL from "../images/trainREAL.jpeg";
+import dogFAKE from "../images/dogFAKE.jpeg";
+import dogREAL from "../images/dogREAL.jpeg";
+import snowREAL from "../images/snowREAL.jpeg";
+import snowAI from "../images/snowAI.jpeg";
+import parachuteAI from "../images/parachuteAI.jpeg";
+import parachuteREAL from "../images/parachuteREAL.jpeg";
+import droneREAL from "../images/droneREAL.jpeg";
+import droneAI from "../images/droneAI.jpeg";
 
 
 // Static Data Source - Replace URLs with your actual image paths later
@@ -10,38 +18,45 @@ import trainREAL from "../images/trainREAL.jpeg";
 // type: 'AI' = Artificial
 const STATIC_DATA = [
   {
-    subject: "Happy Children Playing",
+    subject: "",
     images: [
       { url: childrenREAL, type: 'DESIGN' },
       { url: childrenAI, type: 'AI' }
     ]
   },
   {
-    subject: "Real Train or Not",
+    subject: "",
     images: [
       { url: trainREAL, type: 'DESIGN' },
       { url: trainAI, type: 'AI' }
     ]
   },
   {
-    subject: "Abstract Low Poly Fox",
+    subject: "",
     images: [
-      { url: "https://picsum.photos/seed/poly1/800/800", type: 'DESIGN' },
-      { url: "https://picsum.photos/seed/poly2/800/800", type: 'AI' }
+      { url: droneREAL, type: 'DESIGN' },
+      { url: droneAI, type: 'AI' }
     ]
   },
   {
-    subject: "Neon Space Station",
+    subject: "",
     images: [
-      { url: "https://picsum.photos/seed/space1/800/800", type: 'DESIGN' },
-      { url: "https://picsum.photos/seed/space2/800/800", type: 'AI' }
+      { url: dogREAL, type: 'DESIGN' },
+      { url: dogFAKE, type: 'AI' }
     ]
   },
   {
-    subject: "Hand-Drawn Fantasy Map",
+    subject: "",
     images: [
-      { url: "https://picsum.photos/seed/map1/800/800", type: 'DESIGN' },
-      { url: "https://picsum.photos/seed/map2/800/800", type: 'AI' }
+      { url: parachuteREAL, type: 'DESIGN' },
+      { url: parachuteAI, type: 'AI' }
+    ]
+  },
+  {
+    subject: "",
+    images: [
+      { url: snowREAL, type: 'DESIGN' },
+      { url: snowAI, type: 'AI' }
     ]
   }
 ] as const;

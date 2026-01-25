@@ -23,7 +23,7 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
               ROUND {round.id}
             </div>
             <h3 className="text-2xl font-bold text-white uppercase tracking-tight">
-              Mission: <span className="text-[#00FF9D]">{round.subject}</span>
+              <span className="text-[#00FF9D]">{round.subject}</span>
             </h3>
           </div>
           <div className="hidden md:block text-xs font-mono text-gray-400 bg-black/30 px-3 py-1 rounded">
