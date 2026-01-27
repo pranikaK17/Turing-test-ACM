@@ -4,143 +4,174 @@ import { saveScore } from './services/storageService';
 import { GameState } from '../types';
 import { LoadingScreen } from './components/LoadingScreen';
 import { RoundCard } from './components/RoundCard';
-import { signInWithPopup, onAuthStateChanged, User, signOut } from "firebase/auth";
-import { auth, googleProvider, db } from "./firebase";
-import { doc, getDoc } from "firebase/firestore";
+import LoginPage from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
-import ProtectedRoute from './components/ProtectedRoute'; 
-import { Trophy, ArrowRight, RotateCcw, Zap, LogOut } from 'lucide-react';
+import {
+ onAuthStateChanged,
+ User,
+ signOut,
+ signInWithEmailAndPassword
+} from "firebase/auth";
+import { auth, db } from "./firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { ArrowRight, RotateCcw, Zap, LogOut, ShieldAlert } from 'lucide-react';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [gameState, setGameState] = useState<GameState>({
-    status: 'IDLE',
-    rounds: [],
-    loadingProgress: 0,
-    score: 0,
-    teamName: 'Guest Agent'
-  });
+ const [user, setUser] = useState<User | null>(null);
+ const [isAdmin, setIsAdmin] = useState(false);
+ const [loading, setLoading] = useState(true);
+ const [gameState, setGameState] = useState<GameState>({
+   status: 'IDLE',
+   rounds: [],
+   loadingProgress: 0,
+   score: 0,
+   teamName: 'Guest Agent'
+ });
 
   const roundsEndRef = useRef<HTMLDivElement>(null);
 
-  // --- AUTH & ADMIN CHECK ---
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const adminSnap = await getDoc(doc(db, "admins", currentUser.uid));
-        setIsAdmin(adminSnap.exists());
-        setGameState(prev => ({ 
-          ...prev, 
-          teamName: currentUser.displayName || 'Agent' 
-        }));
-      } else {
-        setIsAdmin(false);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+// --- AUTH & ADMIN ROLE CHECK ---
+ useEffect(() => {
+   const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+     if (currentUser) {
+       try {
+         const userRef = doc(db, "users", currentUser.uid);
+         const userSnap = await getDoc(userRef);
+        
+         const roleIsAdmin = userSnap.exists() && userSnap.data().role === 'admin';
+         setIsAdmin(roleIsAdmin);
+         setUser(currentUser);
 
-  // --- LOGOUT HANDLER ---
-  const handleLogout = useCallback(async () => {
-    if (window.confirm("Terminate session and return to terminal?")) {
-      try {
-        await signOut(auth);
-        setGameState({
-          status: 'IDLE',
-          rounds: [],
-          loadingProgress: 0,
-          score: 0,
-          teamName: 'Guest Agent'
-        });
-      } catch (error) {
-        console.error("Logout failed:", error);
-      }
-    }
-  }, []);
+         const nameFromEmail = currentUser.email?.split('@')[0] || 'Agent';
+        
+         setGameState(prev => ({
+           ...prev,
+           teamName: nameFromEmail,
+           // REDIRECTION LOGIC: If admin, go straight to ADMIN dashboard.
+           // If regular user and was logging in, go to GENERATING.
+           status: roleIsAdmin ? 'ADMIN' : (prev.status === 'LOGIN' ? 'GENERATING' : prev.status)
+         }));
+       } catch (err) {
+         console.error("Role check failed:", err);
+       }
+     } else {
+       setUser(null);
+       setIsAdmin(false);
+     }
+     setLoading(false);
+   });
+   return () => unsubscribe();
+ }, []);
 
-  // --- START GAME ---
-  const startGame = useCallback(async () => {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      
-      const adminSnap = await getDoc(doc(db, "admins", result.user.uid));
-      if (adminSnap.exists()) {
-        setIsAdmin(true);
-        setGameState(prev => ({ ...prev, status: 'ADMIN' }));
-        return;
-      }
+ // --- TRIGGER GAME GENERATION ---
+ useEffect(() => {
+   if (gameState.status === 'GENERATING') {
+     const loadGame = async () => {
+       try {
+         const generatedRounds = await generateGameRounds((progress) => {
+           setGameState(prev => ({ ...prev, loadingProgress: progress }));
+         });
+        
+         setGameState(prev => ({
+           ...prev,
+           status: 'PLAYING',
+           rounds: generatedRounds,
+           loadingProgress: 100
+         }));
+       } catch (err) {
+         console.error("Game gen failed:", err);
+         setGameState(prev => ({ ...prev, status: 'IDLE' }));
+       }
+     };
+     loadGame();
+   }
+ }, [gameState.status]);
 
-      setGameState(prev => ({ 
-        ...prev, 
-        status: 'GENERATING', 
-        loadingProgress: 0, 
-        score: 0,
-        rounds: [] 
-      }));
-      
-      const generatedRounds = await generateGameRounds((progress) => {
-        setGameState(prev => ({ ...prev, loadingProgress: progress }));
-      });
-      
-      setGameState(prev => ({
-        ...prev,
-        status: 'PLAYING',
-        rounds: generatedRounds,
-        loadingProgress: 100
-      }));
+  // --- HANDLERS ---
+ const handleLogin = async (usernameInput: string, passwordInput: string) => {
+   const email = `${usernameInput.trim()}@acm.com`;
+   try {
+     // The onAuthStateChanged listener above will handle the redirection automatically
+     await signInWithEmailAndPassword(auth, email, passwordInput);
+   } catch (error) {
+     alert("CRITICAL_ERROR: INVALID_AGENT_CREDENTIALS");
+   }
+ };
 
-    } catch (error) {
-      console.error("Failed to start session:", error);
-      setGameState(prev => ({ ...prev, status: 'IDLE' }));
-    }
-  }, []);
+ const handleLogout = useCallback(async () => {
+   if (window.confirm("Terminate session and return to terminal?")) {
+     try {
+       await signOut(auth);
+       setGameState({
+         status: 'IDLE',
+         rounds: [],
+         loadingProgress: 0,
+         score: 0,
+         teamName: 'Guest Agent'
+       });
+     } catch (error) {
+       console.error("Logout failed:", error);
+     }
+   }
+ }, []);
 
-  // --- SELECTION LOGIC ---
-  const handleSelection = useCallback((roundId: number, imageId: string) => {
-    setGameState(prev => {
-      const newRounds = prev.rounds.map(round => {
-        if (round.id !== roundId) return round;
-        const selectedImage = round.images.find(img => img.id === imageId);
-        const isCorrect = selectedImage?.type === 'AI'; 
-        return { ...round, userChoiceId: imageId, isCorrect: isCorrect };
-      });
-      const currentScore = newRounds.filter(r => r.isCorrect).length;
-      return { ...prev, rounds: newRounds, score: currentScore };
-    });
-  }, []);
+ const startGame = useCallback(() => {
+   if (user) {
+     setGameState(prev => ({ ...prev, status: isAdmin ? 'ADMIN' : 'GENERATING' }));
+   } else {
+     setGameState(prev => ({ ...prev, status: 'LOGIN' }));
+   }
+ }, [user, isAdmin]);
 
-  // --- FINISH & SUBMIT ---
-  const finishGame = useCallback(() => {
-    // 1. Save score to Firestore/Storage
-    saveScore(gameState.teamName, gameState.score);
-    
-    // 2. Change status to trigger the results view
-    setGameState(prev => ({ ...prev, status: 'FINISHED' }));
-    
-    // 3. Scroll to top so they see the score immediately
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [gameState.teamName, gameState.score]);
+ const handleSelection = useCallback((roundId: number, imageId: string) => {
+   setGameState(prev => {
+     const newRounds = prev.rounds.map(round => {
+       if (round.id !== roundId) return round;
+       const selectedImage = round.images.find(img => img.id === imageId);
+       const isCorrect = selectedImage?.type === 'AI';
+       return { ...round, userChoiceId: imageId, isCorrect: isCorrect };
+     });
+     const currentScore = newRounds.filter(r => r.isCorrect).length;
+     return { ...prev, rounds: newRounds, score: currentScore };
+   });
+ }, []);
 
-  const resetGame = useCallback(() => {
-    setGameState(prev => ({
-      ...prev,
-      status: 'IDLE',
-      rounds: [],
-      score: 0
-    }));
-  }, []);
+ const finishGame = useCallback(() => {
+   saveScore(gameState.teamName, gameState.score);
+   setGameState(prev => ({ ...prev, status: 'FINISHED' }));
+   window.scrollTo({ top: 0, behavior: 'smooth' });
+ }, [gameState.teamName, gameState.score]);
 
-  // Logic to enable the submit button
-  const completedRounds = gameState.rounds.filter(r => r.userChoiceId !== null).length;
-  const isAllAnswered = gameState.rounds.length > 0 && completedRounds === gameState.rounds.length;
+ const resetGame = useCallback(() => {
+   setGameState(prev => ({
+     ...prev,
+     status: 'IDLE',
+     rounds: [],
+     score: 0
+   }));
+ }, []);
+
+ const completedRounds = gameState.rounds.filter(r => r.userChoiceId !== null).length;
+ const isAllAnswered = gameState.rounds.length > 0 && completedRounds === gameState.rounds.length;
+
 
   // --- VIEW ROUTING ---
-
-  if (gameState.status === 'ADMIN') {
-    return <AdminDashboard />;
+  if (gameState.status === 'LOGIN') {
+    return <LoginPage onSubmit={handleLogin} />;
   }
+  if (gameState.status === 'ADMIN') {
+  return (
+    <AdminDashboard 
+      onExit={() => setGameState({
+        status: 'IDLE',
+        rounds: [],
+        loadingProgress: 0,
+        score: 0,
+        teamName: 'Guest Agent'
+      })} 
+    />
+  );
+}
 
   if (gameState.status === 'GENERATING') {
     return <LoadingScreen progress={gameState.loadingProgress} />;
@@ -201,7 +232,7 @@ export default function App() {
     );
   }
 
-  // IDLE SCREEN
+// IDLE SCREEN
   if (gameState.status === 'IDLE') {
     return (
       <div className="min-h-screen flex flex-col relative overflow-hidden">
@@ -222,7 +253,6 @@ export default function App() {
       </div>
     );
   }
-
   // PLAYING STATE
   return (
     <div className="min-h-screen text-white custom-scrollbar flex flex-col">
