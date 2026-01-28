@@ -1,34 +1,58 @@
 import { db, auth } from "../firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { 
+  collection, 
+  addDoc, 
+  serverTimestamp, 
+  doc, 
+  setDoc,
+  deleteDoc
+} from "firebase/firestore";
 
-export interface TeamScore {
-  name: string;
-  email: string;
-  score: number;
-  timestamp: any; // Firestore serverTimestamp
-}
+// SAVE PARTIAL PROGRESS
+export const savePartialProgress = async (rounds: any[], score: number, teamName: string) => {
+  if (!auth.currentUser) return;
 
+  try {
+    const sessionRef = doc(db, "active_sessions", auth.currentUser.uid);
+
+    const progressCount = rounds.filter(r => r.userChoiceId !== null).length;
+
+    await setDoc(sessionRef, {
+      name: teamName,
+      email: auth.currentUser.email,
+      rounds: rounds,
+      currentScore: score,
+      progress: progressCount,
+      lastActive: serverTimestamp(),
+      status: 'LIVE'
+    }, { merge: true });
+  } catch (e) {
+    console.error("CRITICAL_SYNC_FAILURE:", e);
+  }
+};
+
+// SAVE FINAL SCORE
 export const saveScore = async (teamName: string, score: number) => {
-  // Ensure we have a logged-in user to associate the score with
   if (!auth.currentUser) {
-    console.error("No authenticated user found. Score not saved.");
+    console.error("ACCESS_DENIED: No authenticated agent found.");
     return;
   }
 
   try {
-    // We push to the 'submissions' collection which the Admin Dashboard listens to
     await addDoc(collection(db, "submissions"), {
       name: teamName,
       email: auth.currentUser.email,
       score: score,
-      timestamp: serverTimestamp(), // Uses Firebase's clock for accuracy
+      timestamp: serverTimestamp(),
+      status: 'LOCKED'
     });
-    console.log("Score successfully uploaded to cloud mainframe.");
+
+
+    const sessionRef = doc(db, "active_sessions", auth.currentUser.uid);
+    await deleteDoc(sessionRef);
+
+    console.log("DATA_UPLINK_SUCCESS: Score committed to mainframe.");
   } catch (e) {
-    console.error("Failed to sync score to Firestore:", e);
-    // Optional: Fallback to localStorage if the internet is down
+    console.error("DATABASE_ERROR: Final sync failed:", e);
   }
 };
-
-// Note: getScores and clearScores are now handled 
-// automatically by the AdminDashboard's onSnapshot listener.

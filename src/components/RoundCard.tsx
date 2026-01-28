@@ -8,7 +8,7 @@ interface RoundCardProps {
 }
 
 export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
-  const hasSelected = round.userChoiceId !== null;
+  const hasSelected = round.userChoiceId !== null && round.userChoiceId !== undefined;
 
   return (
     <div className="w-full max-w-5xl mx-auto mb-16 relative">
@@ -36,22 +36,21 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
             const isSelected = round.userChoiceId === image.id;
             const isCorrect = image.type === 'AI'; 
             
-            // Logic for visual states
             let containerClass = "border-gray-700 hover:border-[#00FF9D] hover:scale-[1.02] hover:-rotate-1 cursor-pointer";
             let shadowClass = "hover:shadow-[8px_8px_0px_#00FF9D]";
-            let overlay = null;
+            
 
             if (hasSelected) {
               if (isSelected) {
                 if (isCorrect) {
-                  containerClass = "border-[#00FF9D] scale-100 ring-4 ring-[#00FF9D]/30 z-10";
+                  containerClass = "border-[#00FF9D] scale-100 ring-4 ring-[#00FF9D]/30 z-10 cursor-default";
                   shadowClass = "shadow-[0px_0px_30px_rgba(0,255,157,0.4)]";
                 } else {
-                  containerClass = "border-[#FF2E2E] scale-100 ring-4 ring-[#FF2E2E]/30 z-10";
+                  containerClass = "border-[#FF2E2E] scale-100 ring-4 ring-[#FF2E2E]/30 z-10 cursor-default";
                   shadowClass = "shadow-[0px_0px_30px_rgba(255,46,46,0.4)]";
                 }
               } else {
-                containerClass = "border-gray-800 opacity-40 grayscale scale-95";
+                containerClass = "border-gray-800 opacity-40 grayscale scale-95 cursor-default pointer-events-none";
                 shadowClass = "";
               }
             } else {
@@ -103,7 +102,7 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
                    )}
                 </div>
 
-                {/* Hover "Pick Me" Text - Only if not selected yet */}
+
                 {!hasSelected && (
                   <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-2 group-hover:translate-y-0 z-20">
                     <div className="bg-white text-black font-bold px-4 py-1 border-2 border-black shadow-[4px_4px_0px_#000] uppercase text-sm">
