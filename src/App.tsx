@@ -28,6 +28,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const lastRoundIndexRef = useRef<number>(-1);
   
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
   
@@ -74,13 +75,15 @@ export default function App() {
 
   // --- PER-ROUND TIMER LOGIC (5s per image pair) ---
   useEffect(() => {
-    // Only run per-round timer while playing and when a round is active
+    // Only reset per-round timer when the ACTIVE ROUND changes (not when the round object updates, e.g. selecting a photo)
     if (gameState.status !== 'PLAYING') return;
     if (!gameState.rounds[currentRoundIndex]) return;
 
-    // When a new round starts, reset the per-round timer
-    setRoundTimeLeft(ROUND_TIME_LIMIT);
-  }, [gameState.status, currentRoundIndex, gameState.rounds, ROUND_TIME_LIMIT]);
+    if (lastRoundIndexRef.current !== currentRoundIndex) {
+      lastRoundIndexRef.current = currentRoundIndex;
+      setRoundTimeLeft(ROUND_TIME_LIMIT);
+    }
+  }, [gameState.status, currentRoundIndex, gameState.rounds.length]);
 
   useEffect(() => {
     if (gameState.status !== 'PLAYING') return;
