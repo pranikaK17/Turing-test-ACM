@@ -62,7 +62,7 @@ export default function AdminDashboard({ onExit }: { onExit?: () => void }) {
       const masterMap = new Map<string, PlayerData>();
 
       actives.forEach(u => {
-        masterMap.set(u.email, {
+        masterMap.set(u.id, {
           id: u.id,
           name: u.name,
           email: u.email,
@@ -75,7 +75,7 @@ export default function AdminDashboard({ onExit }: { onExit?: () => void }) {
 
 
       submissions.forEach(p => {
-        masterMap.set(p.email, {
+        masterMap.set(p.id, {
           ...p,
           status: 'LOCKED',
           timeTaken: '00:00'
@@ -125,8 +125,8 @@ export default function AdminDashboard({ onExit }: { onExit?: () => void }) {
 
   const filteredPlayers = useMemo(() => {
     return players.filter(p => 
-      p.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.name?.toLowerCase().includes(searchQuery.toLowerCase())
+      p.email?.toLowerCase()?.includes(searchQuery.toLowerCase()) ||
+      p.name?.toLowerCase()?.includes(searchQuery.toLowerCase())
     );
   }, [players, searchQuery]);
 
