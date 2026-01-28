@@ -321,32 +321,14 @@ export default function App() {
              </div>
            </div>
            <div className="text-center mb-6">
-              <h1 className="text-[120px] md:text-[180px] font-heading leading-none text-white retro-text-shadow select-none">
-                {gameState.score}<span className="text-[#FF00E6] text-[0.8em]">/</span>{gameState.rounds.length}
+              <h1 className="text-4xl md:text-6xl font-heading leading-none text-white retro-text-shadow select-none uppercase max-w-3xl">
+                Results will be announced soon!!
               </h1>
            </div>
            <div className="mb-16 text-center">
-              <p className={`text-2xl md:text-3xl font-heading uppercase tracking-[0.2em] 
-                ${gameState.score >= 4 ? 'text-[#00FF9D]' : gameState.score >= 3 ? 'text-yellow-400' : 'text-[#FF00E6]'}`}>
-                {gameState.score === 6 ? ">> GODLIKE ACCURACY <<" :
-                 gameState.score >= 4 ? ">> HIGHLY PROFICIENT <<" :
-                 gameState.score >= 2 ? ">> ACCEPTABLE MARGIN <<" :
-                 ">> SYSTEM COMPROMISED <<"}
+              <p className="text-2xl md:text-3xl font-heading uppercase tracking-[0.2em] text-yellow-400">
+                Response has been recorded
               </p>
-           </div>
-           <div className="flex flex-wrap justify-center gap-4 md:gap-6 mb-16">
-             {gameState.rounds.map((round, idx) => (
-                <div key={round.id} className="flex flex-col items-center gap-3 group">
-                  <div className={`
-                    w-12 h-12 md:w-16 md:h-16 flex items-center justify-center border-4 
-                    transition-all duration-300 transform group-hover:scale-110 shadow-[4px_4px_0px_rgba(0,0,0,0.5)]
-                    ${round.isCorrect ? 'bg-[#00FF9D] border-black text-black' : 'bg-[#1F1B2E] border-[#FF00E6] text-[#FF00E6]'}
-                  `}>
-                    {round.isCorrect ? <Zap size={32} strokeWidth={2.5} className="fill-current" /> : <span className="font-mono text-3xl font-bold">X</span>}
-                  </div>
-                  <span className="text-[10px] md:text-xs text-gray-500 font-mono uppercase tracking-widest">R0{idx + 1}</span>
-                </div>
-             ))}
            </div>
            <button onClick={resetGame} className="group relative inline-flex items-center gap-4 px-12 py-6 bg-[#FF00E6] text-white font-heading text-2xl uppercase tracking-widest hover:bg-[#d900c4] hover:scale-105 transition-all duration-300 shadow-[0_0_30px_rgba(255,46,230,0.3)]">
              <RotateCcw className="w-8 h-8 group-hover:-rotate-180 transition-transform duration-700" />

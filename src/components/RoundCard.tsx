@@ -34,7 +34,6 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6 md:p-8 bg-[#181524]">
           {round.images.map((image) => {
             const isSelected = round.userChoiceId === image.id;
-            const isCorrect = image.type === 'AI'; 
             
             let containerClass = "border-gray-700 hover:border-[#00FF9D] hover:scale-[1.02] hover:-rotate-1 cursor-pointer";
             let shadowClass = "hover:shadow-[8px_8px_0px_#00FF9D]";
@@ -42,13 +41,8 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
 
             if (hasSelected) {
               if (isSelected) {
-                if (isCorrect) {
-                  containerClass = "border-[#00FF9D] scale-100 ring-4 ring-[#00FF9D]/30 z-10 cursor-default";
-                  shadowClass = "shadow-[0px_0px_30px_rgba(0,255,157,0.4)]";
-                } else {
-                  containerClass = "border-[#FF2E2E] scale-100 ring-4 ring-[#FF2E2E]/30 z-10 cursor-default";
-                  shadowClass = "shadow-[0px_0px_30px_rgba(255,46,46,0.4)]";
-                }
+                containerClass = "border-[#00FF9D] scale-100 ring-4 ring-[#00FF9D]/30 z-10 cursor-default";
+                shadowClass = "shadow-[0px_0px_30px_rgba(0,255,157,0.4)]";
               } else {
                 containerClass = "border-gray-800 opacity-40 grayscale scale-95 cursor-default pointer-events-none";
                 shadowClass = "";
@@ -73,31 +67,17 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
                    />
                    
                    {/* Selection/Result Overlay */}
-                   {hasSelected && (
+                   {hasSelected && isSelected && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
                          {/* Badge */}
                          <div className={`
                             transform rotate-[-6deg] px-6 py-3 border-4 border-black shadow-[6px_6px_0px_rgba(0,0,0,0.5)]
                             flex items-center gap-3 font-heading text-2xl uppercase
-                            ${image.type === 'AI' ? 'bg-[#00FF9D] text-black' : 'bg-[#FF00E6] text-white'}
+                            bg-[#00FF9D] text-black
                          `}>
-                            {image.type === 'AI' ? <Bot size={28} /> : <Paintbrush2 size={28} />}
-                            {image.type === 'AI' ? 'AI Generated' : 'Real Photograph'}
+                            <Check size={28} />
+                            SELECTED
                          </div>
-                         
-                         {isSelected && (
-                           <div className="mt-8 transform scale-150">
-                             {isCorrect ? (
-                               <div className="bg-green-500 rounded-full p-2 border-4 border-black">
-                                 <Check className="w-12 h-12 text-white" strokeWidth={4} />
-                               </div>
-                             ) : (
-                               <div className="bg-red-500 rounded-full p-2 border-4 border-black">
-                                 <X className="w-12 h-12 text-white" strokeWidth={4} />
-                               </div>
-                             )}
-                           </div>
-                         )}
                       </div>
                    )}
                 </div>
@@ -117,9 +97,9 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onSelect }) => {
 
         {/* Round Result Footer */}
         {hasSelected && (
-           <div className={`p-4 text-center border-t-4 border-black ${round.isCorrect ? 'bg-[#00FF9D]/20' : 'bg-[#FF2E2E]/20'}`}>
-              <h4 className={`font-heading text-xl uppercase ${round.isCorrect ? 'text-[#00FF9D]' : 'text-[#FF2E2E]'}`}>
-                 {round.isCorrect ? ">> TARGET IDENTIFIED SUCCESSFULLY <<" : ">> ERROR: HUMAN PHOTOGRAPH DETECTED <<"}
+           <div className="p-4 text-center border-t-4 border-black bg-[#00FF9D]/20">
+              <h4 className="font-heading text-xl uppercase text-[#00FF9D]">
+                 &gt;&gt; SELECTION RECORDED &lt;&lt;
               </h4>
            </div>
         )}
