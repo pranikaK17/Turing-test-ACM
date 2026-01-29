@@ -105,7 +105,7 @@ export default function RulesPage({ onStart }: RulesPageProps) {
                 <ShieldCheck size={24} />
               </div>
               <div>
-                <h3 className="text-xl font-heading uppercase tracking-wide mb-1 text-white">Score & Streak</h3>
+                <h3 className="text-xl font-heading uppercase tracking-wide mb-1 text-white">Move fast . Think sharp</h3>
                 <p className="text-xs text-gray-400 leading-relaxed">
                   Your grade is calculated from two metrics: <span className="text-[#00FF9D]">response time</span> and <span className="text-[#00FF9D]">accuracy</span>.Excel in both to reach <span className="text-[#FF00E6]">"Godlike"</span> status.
                 </p>
