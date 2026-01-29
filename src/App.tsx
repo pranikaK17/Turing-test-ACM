@@ -14,8 +14,16 @@ import {
   signInWithEmailAndPassword
 } from "firebase/auth";
 import { auth, db } from "./firebase";
-import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { ArrowRight, RotateCcw, Zap, LogOut, CheckCircle, Timer, AlertTriangle } from 'lucide-react';
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  deleteDoc, 
+  collection,
+  addDoc,
+  serverTimestamp 
+} from "firebase/firestore";
+import { ArrowRight, RotateCcw, Zap, LogOut, CheckCircle, Timer } from 'lucide-react';
 
 // FORMAT HELPER FOR TIMER (MM:SS)
 const formatTime = (seconds: number) => {
@@ -28,16 +36,10 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  const lastRoundIndexRef = useRef<number>(-1);
-  const lastRoundAutoFinishRef = useRef(false);
   
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
-  
-  // NEW: Global Timer State (300s = 5 mins)
-  const [timeLeft, setTimeLeft] = useState(300);
-  // NEW: Per-Round Timer State (5s per image pair)
-  const ROUND_TIME_LIMIT = 5;
-  const [roundTimeLeft, setRoundTimeLeft] = useState(ROUND_TIME_LIMIT);
+  const [roundTimeLeft, setRoundTimeLeft] = useState(5);
+  const totalElapsedSeconds = useRef(0);
 
   const [gameState, setGameState] = useState<GameState>({
     status: 'LOGIN',
@@ -48,137 +50,128 @@ export default function App() {
   });
   const [loginError, setLoginError] = useState<string | undefined>(undefined);
 
-  // --- GAME FINISH LOGIC (Moved up so Timer can use it) ---
-  const finishGame = useCallback(async () => {
-    const timeTaken = 300 - timeLeft;
-    await saveScore(gameState.teamName, gameState.score, timeTaken);
-    if (user) await deleteDoc(doc(db, "active_sessions", user.uid)).catch(() => {});
+  // --- GAME FINISH LOGIC (Uplink to History) ---
+  const finishGame = useCallback(async (finalRounds?: any[], finalScore?: number) => {
+    if (!user) return;
+    
+    // Set status to FINISHED immediately to clear the game UI and show success screen
     setGameState(prev => ({ ...prev, status: 'FINISHED' }));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [gameState.teamName, gameState.score, user, timeLeft]);
 
-  const finalizeCurrentRound = useCallback((opts?: { forceNoChoice?: boolean }) => {
-    setGameState(prev => {
-      const round = prev.rounds[currentRoundIndex];
-      if (!round) return prev;
-
-      const hasChoice = round.userChoiceId !== null && round.userChoiceId !== undefined;
-      if (hasChoice) return prev;
-
-      if (!opts?.forceNoChoice) {
-        // Not forcing a submission: still persist current state for safety.
-        const currentScore = prev.rounds.filter(r => r.isCorrect).length;
-        savePartialProgress(prev.rounds, currentScore, prev.teamName);
-        return prev;
-      }
-
-      const newRounds = prev.rounds.map((r, idx) => {
-        if (idx !== currentRoundIndex) return r;
-        return { ...r, userChoiceId: "__NO_CHOICE__", isCorrect: false };
+    try {
+      // 1. Save to unique document in 'submissions' for history tracking
+      // FIX: Ensure first argument is the collection reference
+      await addDoc(collection(db, "submissions"), {
+        uid: user.uid,
+        name: gameState.teamName,
+        email: user.email,
+        score: finalScore ?? gameState.score,
+        timeTaken: totalElapsedSeconds.current,
+        rounds: finalRounds ?? gameState.rounds,
+        timestamp: serverTimestamp(),
+        status: 'LOCKED',
+        role: 'player'
       });
 
-      const currentScore = newRounds.filter(r => r.isCorrect).length;
-      savePartialProgress(newRounds, currentScore, prev.teamName);
-      return { ...prev, rounds: newRounds, score: currentScore };
-    });
-  }, [currentRoundIndex]);
+      // 2. Clear the active session (Heartbeat cleanup)
+      // FIX: Clean reference to the session document
+      const sessionDocRef = doc(db, "active_sessions", user.uid);
+      await deleteDoc(sessionDocRef);
 
-  // --- GLOBAL TIMER LOGIC ---
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      console.error("Critical submission failure:", err);
+    }
+  }, [gameState.teamName, gameState.score, gameState.rounds, user]);
+
+  // --- NAVIGATION LOGIC ---
+  const handleNextRound = useCallback((updatedRounds?: any[], updatedScore?: number) => {
+    const roundsRef = updatedRounds || gameState.rounds;
+    const isAtLastRound = currentRoundIndex >= roundsRef.length - 1;
+    
+    if (!isAtLastRound) {
+      setCurrentRoundIndex(prev => prev + 1);
+      setRoundTimeLeft(5); 
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      finishGame(updatedRounds, updatedScore);
+    }
+  }, [currentRoundIndex, gameState.rounds, finishGame]);
+
+  // --- TIMER LOGIC (Per Round + Final Transition Fix) ---
   useEffect(() => {
     let timerId: any;
 
-    if (gameState.status === 'PLAYING' && timeLeft > 0) {
+    if (gameState.status === 'PLAYING') {
       timerId = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
+        totalElapsedSeconds.current += 1;
+
+        setRoundTimeLeft((prev) => {
+          if (prev <= 1) {
+            const currentRound = gameState.rounds[currentRoundIndex];
+            const isAtLastRound = currentRoundIndex >= gameState.rounds.length - 1;
+            
+            // Scenario A: Round has NOT been answered yet (Time Ran Out)
+            if (currentRound && (currentRound.userChoiceId === undefined || currentRound.userChoiceId === null)) {
+              const newRounds = [...gameState.rounds];
+              newRounds[currentRoundIndex] = { 
+                ...currentRound, 
+                userChoiceId: null, 
+                isCorrect: false 
+              };
+              
+              const newScore = newRounds.filter(r => r.isCorrect).length;
+              savePartialProgress(newRounds, newScore, gameState.teamName);
+
+              if (isAtLastRound) {
+                finishGame(newRounds, newScore);
+                return 0; 
+              } else {
+                setGameState(prevGS => ({ ...prevGS, rounds: newRounds, score: newScore }));
+                setCurrentRoundIndex(idx => idx + 1);
+                return 5; 
+              }
+            }
+            
+            // Scenario B: Round was already answered, timer just hit zero
+            if (isAtLastRound) {
+              finishGame();
+              return 0;
+            } else {
+              handleNextRound();
+              return 5;
+            }
+          }
+          return prev - 1;
+        });
       }, 1000);
-    } else if (gameState.status === 'PLAYING' && timeLeft === 0) {
-      // AUTO-SUBMIT WHEN TIME IS UP
-      finishGame();
     }
 
     return () => {
       if (timerId) clearInterval(timerId);
     };
-  }, [gameState.status, timeLeft, finishGame]);
-
-  // --- AUTO-FINISH WHEN LAST ROUND HAS A CHOICE ---
-  useEffect(() => {
-    if (gameState.status !== 'PLAYING') {
-      lastRoundAutoFinishRef.current = false;
-      return;
-    }
-
-    const isLastRound = currentRoundIndex === gameState.rounds.length - 1;
-    if (!isLastRound) {
-      lastRoundAutoFinishRef.current = false;
-      return;
-    }
-
-    const round = gameState.rounds[currentRoundIndex];
-    const isAnswered = round?.userChoiceId !== null && round?.userChoiceId !== undefined;
-
-    if (isAnswered && !lastRoundAutoFinishRef.current) {
-      lastRoundAutoFinishRef.current = true;
-      finishGame();
-    }
-  }, [gameState.status, currentRoundIndex, gameState.rounds, gameState.score, finishGame]);
-
-  // --- PER-ROUND TIMER LOGIC (5s per image pair) ---
-  useEffect(() => {
-    // Only reset per-round timer when the ACTIVE ROUND changes (not when the round object updates, e.g. selecting a photo)
-    if (gameState.status !== 'PLAYING') return;
-    if (!gameState.rounds[currentRoundIndex]) return;
-
-    if (lastRoundIndexRef.current !== currentRoundIndex) {
-      lastRoundIndexRef.current = currentRoundIndex;
-      setRoundTimeLeft(ROUND_TIME_LIMIT);
-    }
-  }, [gameState.status, currentRoundIndex, gameState.rounds.length]);
-
-  useEffect(() => {
-    if (gameState.status !== 'PLAYING') return;
-    if (!gameState.rounds[currentRoundIndex]) return;
-
-    // When countdown hits zero, auto-advance to the next round (or finish)
-    if (roundTimeLeft <= 0) {
-      // IMPORTANT: reset round timer BEFORE advancing, otherwise the next render may still see 0s
-      // and immediately auto-advance again in the same effect flush.
-      setRoundTimeLeft(ROUND_TIME_LIMIT);
-      finalizeCurrentRound({ forceNoChoice: true });
-      if (currentRoundIndex < gameState.rounds.length - 1) {
-        setCurrentRoundIndex((prev) => prev + 1);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      } else {
-        // Last round: finish game automatically
-        finishGame();
-      }
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      setRoundTimeLeft((prev) => prev - 1);
-    }, 1000);
-
-    return () => clearInterval(intervalId);
-  }, [gameState.status, currentRoundIndex, gameState.rounds, roundTimeLeft, finishGame, finalizeCurrentRound]);
+  }, [gameState.status, currentRoundIndex, gameState.rounds, handleNextRound, finishGame, gameState.teamName]);
 
 
-  // --- HEARTBEAT SYSTEM ---
+  // --- HEARTBEAT SYSTEM (Live Uplink) ---
   useEffect(() => {
     let heartbeatInterval: any;
 
     const updateHeartbeat = async () => {
-      if (user && gameState.status === 'PLAYING') {
+      if (user && !isAdmin && gameState.status === 'PLAYING') {
         try {
           const sessionRef = doc(db, "active_sessions", user.uid);
+          const progressCount = gameState.rounds.filter(r => r.userChoiceId !== undefined).length;
+
           await setDoc(sessionRef, {
             name: gameState.teamName,
             email: user.email,
             lastActive: serverTimestamp(),
             currentScore: gameState.score,
-            progress: gameState.rounds.filter(r => r.userChoiceId !== null).length,
+            progress: progressCount,
             rounds: gameState.rounds,
-            timeLeft: timeLeft // Optional: Save time to persist on reload if needed later
+            totalTimeSpent: totalElapsedSeconds.current,
+            status: 'LIVE',
+            role: 'player'
           }, { merge: true });
         } catch (err) {
           console.error("Heartbeat sync failed:", err);
@@ -186,23 +179,20 @@ export default function App() {
       }
     };
 
-    if (gameState.status === 'PLAYING' && user) {
-      updateHeartbeat();
-      heartbeatInterval = setInterval(updateHeartbeat, 30000); 
+    if (gameState.status === 'PLAYING' && user && !isAdmin) {
+      updateHeartbeat(); 
+      heartbeatInterval = setInterval(updateHeartbeat, 5000); 
     }
 
     return () => {
       if (heartbeatInterval) clearInterval(heartbeatInterval);
-      if (user && gameState.status === 'FINISHED') {
-        deleteDoc(doc(db, "active_sessions", user.uid)).catch(() => {});
-      }
     };
-  }, [gameState.status, user, gameState.teamName, gameState.score, gameState.rounds, timeLeft]);
+  }, [gameState.status, user, isAdmin, gameState.teamName, gameState.score, gameState.rounds]);
 
 
   // --- AUTH & PERSISTENCE ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         try {
           const userRef = doc(db, "users", currentUser.uid);
@@ -213,33 +203,31 @@ export default function App() {
           setUser(currentUser);
           const nameFromEmail = currentUser.email?.split('@')[0] || 'Agent';
 
-          const sessionRef = doc(db, "active_sessions", currentUser.uid);
-          const sessionSnap = await getDoc(sessionRef);
-
-          if (!roleIsAdmin && sessionSnap.exists()) {
-            const savedData = sessionSnap.data();
-            const savedRounds = savedData.rounds || [];
-            const answeredCount = savedRounds.filter((r: any) => r.userChoiceId !== null && r.userChoiceId !== undefined).length;
-            const restoreIndex = answeredCount < savedRounds.length ? answeredCount : savedRounds.length - 1;
-            
-            setCurrentRoundIndex(restoreIndex >= 0 ? restoreIndex : 0);
-            
-            // Restore Time if available, else default
-            // setTimeLeft(savedData.timeLeft || 300);
-
-            setGameState({
-              status: 'IDLE', 
-              teamName: nameFromEmail,
-              rounds: savedRounds,
-              score: savedData.currentScore || 0,
-              loadingProgress: 100
-            });
+          if (roleIsAdmin) {
+            setGameState(prev => ({ ...prev, teamName: nameFromEmail, status: 'ADMIN' }));
           } else {
-            setGameState(prev => ({
-              ...prev,
-              teamName: nameFromEmail,
-              status: roleIsAdmin ? 'ADMIN' : 'IDLE' 
-            }));
+            const sessionRef = doc(db, "active_sessions", currentUser.uid);
+            const sessionSnap = await getDoc(sessionRef);
+
+            if (sessionSnap.exists()) {
+              const savedData = sessionSnap.data();
+              const savedRounds = savedData.rounds || [];
+              const answeredCount = savedRounds.filter((r: any) => r.userChoiceId !== undefined).length;
+              
+              totalElapsedSeconds.current = savedData.totalTimeSpent || 0;
+              setCurrentRoundIndex(answeredCount < savedRounds.length ? answeredCount : 0);
+              setRoundTimeLeft(5);
+
+              setGameState({
+                status: 'IDLE', 
+                teamName: nameFromEmail,
+                rounds: savedRounds,
+                score: savedData.currentScore || 0,
+                loadingProgress: 100
+              });
+            } else {
+              setGameState(prev => ({ ...prev, teamName: nameFromEmail, status: 'IDLE' }));
+            }
           }
         } catch (err) {
           console.error("Initialization failed:", err);
@@ -252,7 +240,7 @@ export default function App() {
       }
       setLoading(false);
     });
-    return () => unsubscribe();
+    return () => unsubscribeAuth();
   }, []);
 
   // --- TRIGGER GAME GENERATION ---
@@ -264,22 +252,15 @@ export default function App() {
             setGameState(prev => ({ ...prev, loadingProgress: progress }));
           });
           
-          // Randomize rounds order and images within rounds
-          const shuffledRounds = [...generatedRounds].sort(() => Math.random() - 0.5);
-          const randomizedRounds = shuffledRounds.map((round: any, index: number) => ({
-            ...round,
-            id: index + 1,
-            images: [...round.images].sort(() => Math.random() - 0.5)
-          }));
-
           setGameState(prev => ({
             ...prev,
             status: 'PLAYING',
-            rounds: randomizedRounds,
+            rounds: generatedRounds,
             loadingProgress: 100
           }));
           setCurrentRoundIndex(0);
-          setTimeLeft(300); // RESET TIMER ON NEW GAME
+          setRoundTimeLeft(5);
+          totalElapsedSeconds.current = 0;
         } catch (err) {
           console.error("Game gen failed:", err);
           setGameState(prev => ({ ...prev, status: 'IDLE' }));
@@ -289,7 +270,6 @@ export default function App() {
     }
     else if (gameState.status === 'GENERATING' && gameState.rounds.length > 0) {
        setGameState(prev => ({ ...prev, status: 'PLAYING' }));
-       setTimeLeft(300); // Reset timer if restarting existing stack
     }
   }, [gameState.status, gameState.rounds.length]);
 
@@ -297,19 +277,16 @@ export default function App() {
   const handleLogin = async (usernameInput: string, passwordInput: string) => {
     setLoginError(undefined); 
     const email = `${usernameInput.trim()}@acm.com`;
-    
     try {
       await signInWithEmailAndPassword(auth, email, passwordInput);
     } catch (error) {
-      console.error("Login failed:", error);
       setLoginError("INVALID_CREDENTIALS"); 
     }
   };
 
   const handleLogout = useCallback(async () => {
-    if (window.confirm("Terminate session and return to terminal?")) {
+    if (window.confirm("Logout of terminal? Current progress will be saved in the dashboard.")) {
       try {
-        if (user && !isAdmin) await deleteDoc(doc(db, "active_sessions", user.uid));
         await signOut(auth);
         setGameState({
           status: 'LOGIN',
@@ -319,12 +296,13 @@ export default function App() {
           teamName: 'Guest Agent'
         });
         setCurrentRoundIndex(0); 
-        setTimeLeft(300);
+        setRoundTimeLeft(5);
+        totalElapsedSeconds.current = 0;
       } catch (error) {
         console.error("Logout failed:", error);
       }
     }
-  }, [user, isAdmin]);
+  }, []);
 
   const startGame = useCallback(() => {
     if (user) {
@@ -347,25 +325,7 @@ export default function App() {
       savePartialProgress(newRounds, currentScore, prev.teamName);
       return { ...prev, rounds: newRounds, score: currentScore };
     });
-
-    // UX: as soon as a choice is made, move to the next sequence (except last round).
-    const isActiveRound = currentRoundIndex + 1 === roundId; // round.id is 1-based
-    const isLastRound = currentRoundIndex === gameState.rounds.length - 1;
-    if (isActiveRound && !isLastRound) {
-      setRoundTimeLeft(ROUND_TIME_LIMIT);
-      setCurrentRoundIndex(prev => prev + 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [currentRoundIndex, gameState.rounds.length]);
-
-  const handleNextRound = () => {
-    finalizeCurrentRound();
-    if (currentRoundIndex < gameState.rounds.length - 1) {
-      setCurrentRoundIndex(prev => prev + 1);
-      setRoundTimeLeft(ROUND_TIME_LIMIT);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
+  }, []);
 
   const resetGame = useCallback(() => {
     setGameState(prev => ({
@@ -375,26 +335,21 @@ export default function App() {
       score: 0
     }));
     setCurrentRoundIndex(0); 
-    setTimeLeft(300);
-    setRoundTimeLeft(ROUND_TIME_LIMIT);
+    setRoundTimeLeft(5);
+    totalElapsedSeconds.current = 0;
   }, []);
 
-  // Helper variables for UI
+  // UI Helpers
   const currentRound = gameState.rounds[currentRoundIndex];
-  const isCurrentRoundAnswered = currentRound?.userChoiceId !== null && currentRound?.userChoiceId !== undefined;
+  const isCurrentRoundAnswered = currentRound?.userChoiceId !== undefined && currentRound?.userChoiceId !== null;
   const isLastRound = currentRoundIndex === gameState.rounds.length - 1;
-  const completedRounds = gameState.rounds.filter(r => r.userChoiceId !== null).length;
+  const completedRounds = gameState.rounds.filter(r => r.userChoiceId !== undefined).length;
 
   // --- VIEW ROUTING ---
   if (loading) return <LoadingScreen progress={0} />;
   
   if (gameState.status === 'LOGIN') {
-    return (
-      <LoginPage 
-        onSubmit={handleLogin} 
-        error={loginError}
-      />
-    );
+    return <LoginPage onSubmit={handleLogin} error={loginError} />;
   }
   
   if (gameState.status === 'ADMIN') {
@@ -412,11 +367,7 @@ export default function App() {
   }
 
   if (gameState.status === 'RULES') {
-    return (
-      <RulesPage 
-        onStart={() => setGameState(prev => ({ ...prev, status: 'GENERATING' }))} 
-      />
-    );
+    return <RulesPage onStart={() => setGameState(prev => ({ ...prev, status: 'GENERATING' }))} />;
   }
 
   if (gameState.status === 'GENERATING') return <LoadingScreen progress={gameState.loadingProgress} />;
@@ -426,25 +377,21 @@ export default function App() {
       <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden bg-[#13111C]">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#FF00E6] rounded-full mix-blend-multiply filter blur-[150px] opacity-10 animate-pulse"></div>
         <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-[#00FF9D] rounded-full mix-blend-multiply filter blur-[150px] opacity-10 animate-pulse" style={{animationDelay: '1s'}}></div>
-        <div className="relative z-10 flex flex-col items-center w-full max-w-4xl animate-in zoom-in duration-300">
+        <div className="relative z-10 flex flex-col items-center w-full max-w-4xl animate-in zoom-in duration-300 text-center">
            <div className="mb-10 transform -rotate-1">
              <div className="bg-[#00FF9D] text-black border-2 border-[#00FF9D] px-6 py-2 font-mono text-sm font-bold uppercase tracking-widest shadow-[6px_6px_0px_rgba(0,0,0,1)]">
                 // SYSTEM DIAGNOSTIC COMPLETE
              </div>
            </div>
-           <div className="text-center mb-6">
-              <h1 className="text-4xl md:text-6xl font-heading leading-none text-white retro-text-shadow select-none uppercase max-w-3xl">
-                Results will be announced soon!!
-              </h1>
-           </div>
-           <div className="mb-16 text-center">
-              <p className="text-2xl md:text-3xl font-heading uppercase tracking-[0.2em] text-yellow-400">
-                Response has been recorded
-              </p>
-           </div>
+           <h1 className="text-4xl md:text-6xl font-heading leading-none text-white retro-text-shadow uppercase mb-6">
+             Uplink Successful
+           </h1>
+           <p className="text-2xl md:text-3xl font-heading uppercase tracking-[0.2em] text-yellow-400 mb-16">
+             Attempt Saved to History
+           </p>
            <button onClick={resetGame} className="group relative inline-flex items-center gap-4 px-12 py-6 bg-[#FF00E6] text-white font-heading text-2xl uppercase tracking-widest hover:bg-[#d900c4] hover:scale-105 transition-all duration-300 shadow-[0_0_30px_rgba(255,46,230,0.3)]">
-             <RotateCcw className="w-8 h-8 group-hover:-rotate-180 transition-transform duration-700" />
-             <span>Reboot System</span>
+             <RotateCcw className="w-8 h-8 group-hover:-rotate-180 transition-transform" />
+             <span>Back to main page</span>
              <ArrowRight className="w-8 h-8 group-hover:translate-x-2 transition-transform" />
            </button>
         </div>
@@ -452,41 +399,39 @@ export default function App() {
     );
   }
 
-  // IDLE PAGE (HOME)
   if (gameState.status === 'IDLE') {
     return (
-      <div className="min-h-screen flex flex-col relative overflow-hidden">
+      <div className="min-h-screen flex flex-col relative overflow-hidden bg-black">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#FF00E6] rounded-full mix-blend-multiply filter blur-[150px] opacity-20 animate-pulse"></div>
         <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-[#00FF9D] rounded-full mix-blend-multiply filter blur-[150px] opacity-20 animate-pulse" style={{animationDelay: '1s'}}></div>
         <main className="flex-1 flex flex-col items-center justify-center p-6 z-10 text-center relative">
           <div className="mb-8 transform -rotate-2">
-            <span className="bg-black text-[#00FF9D] border-2 border-[#00FF9D] px-4 py-2 font-mono text-sm uppercase tracking-widest shadow-[4px_4px_0px_#00FF9D]">v 1.1.0 // ACM SigAI Chapter</span>
+            <span className="bg-black text-[#00FF9D] border-2 border-[#00FF9D] px-4 py-2 font-mono text-sm uppercase tracking-widest shadow-[4px_4px_0px_#00FF9D]">v 1.2.0 // ACM SigAI Chapter</span>
           </div>
-          <h1 className="text-6xl md:text-8xl font-heading mb-6 leading-none retro-text-shadow">REAL<br/><span className="text-[#FF00E6]">VS</span><br/>ARTIFICIAL</h1>
-          <div className="max-w-xl mx-auto mb-12 bg-black/50 p-6 border-l-4 border-[#00FF9D] backdrop-blur-sm">
+          <h1 className="text-6xl md:text-8xl font-heading mb-6 leading-none retro-text-shadow text-white uppercase">REAL<br/><span className="text-[#FF00E6]">VS</span><br/>ARTIFICIAL</h1>
+          <div className="max-w-xl mx-auto mb-12 bg-black/50 p-6 border-l-4 border-[#00FF9D] backdrop-blur-sm text-left">
             <p className="text-lg md:text-xl text-gray-200 leading-relaxed font-mono">Identify the <span className="text-[#00FF9D] font-bold">AI IMPOSTOR</span>.<br/>Distinguish hallucinations from <span className="text-[#FF00E6] font-bold">HUMAN SOUL</span>.</p>
           </div>
           <button onClick={startGame} className="group game-btn relative inline-flex items-center gap-4 px-12 py-6 bg-[#FF00E6] text-white font-heading text-2xl uppercase tracking-widest hover:bg-[#d900c4]">
-            <Zap className="w-8 h-8 fill-current" /> Initialize <ArrowRight className="w-8 h-8 group-hover:translate-x-2 transition-transform" />
+            <Zap className="w-8 h-8 fill-current" /> Initialize Sequence <ArrowRight className="w-8 h-8 group-hover:translate-x-2 transition-transform" />
           </button>
         </main>
       </div>
     );
   }
 
-  // --- PLAYING VIEW ---
   return (
-    <div className="min-h-screen text-white custom-scrollbar flex flex-col">
+    <div className="min-h-screen text-white custom-scrollbar flex flex-col bg-[#0a0a0c]">
       <header className="sticky top-0 z-50 bg-[#13111C]/95 border-b-4 border-black px-4 py-3 shadow-[0px_4px_20px_rgba(0,0,0,0.5)]">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div onClick={resetGame} className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
                <div className="bg-[#FF00E6] w-8 h-8 flex items-center justify-center border-2 border-black font-bold text-sm shadow-[2px_2px_0px_#000]">R</div>
-               <div className="hidden sm:block"><span className="font-heading text-xl tracking-tighter">REAL<span className="text-[#00FF9D]">VS</span>AI</span></div>
+               <div className="hidden sm:block"><span className="font-heading text-xl tracking-tighter uppercase">REAL<span className="text-[#00FF9D]">VS</span>AI</span></div>
             </div>
             <button 
               onClick={handleLogout}
-              className="flex items-center gap-2 bg-[#1F1B2E] hover:bg-[#FF2E2E] text-gray-400 hover:text-white px-3 py-1.5 rounded border border-gray-700 hover:border-black transition-all group active:scale-95"
+              className="flex items-center gap-2 bg-[#1F1B2E] hover:bg-[#FF2E2E] text-gray-400 hover:text-white px-3 py-1.5 rounded border border-gray-700 transition-all group active:scale-95"
             >
               <LogOut size={14} />
               <span className="text-[10px] font-mono font-bold uppercase tracking-tighter">Logout</span>
@@ -494,23 +439,10 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4 sm:gap-8">
-             {/* PER-ROUND TIMER DISPLAY (5s) */}
-             <div className="flex items-center gap-2 border border-[#00FF9D]/40 bg-black/40 px-3 py-1.5 rounded">
-                <Timer size={14} className="text-[#00FF9D]" />
-                <span className="font-mono text-sm font-bold tracking-widest text-[#00FF9D]">
-                  {Math.max(roundTimeLeft, 0)}s
-                </span>
-             </div>
-
-             {/* GLOBAL TIMER DISPLAY */}
-             <div className="flex items-center gap-2 border border-[#FF00E6]/30 bg-black/40 px-3 py-1.5 rounded">
-                {timeLeft < 60 ? (
-                  <AlertTriangle size={16} className="text-red-500 animate-pulse" />
-                ) : (
-                  <Timer size={16} className="text-[#FF00E6]" />
-                )}
-                <span className={`font-mono text-lg font-bold tracking-widest ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
-                  {formatTime(timeLeft)}
+             <div className={`flex items-center gap-2 border px-3 py-1.5 rounded ${roundTimeLeft <= 2 ? 'border-red-500 bg-red-500/10' : 'border-[#FF00E6]/30 bg-black/40'}`}>
+                <Timer size={16} className={roundTimeLeft <= 2 ? 'text-red-500 animate-pulse' : 'text-[#FF00E6]'} />
+                <span className={`font-mono text-lg font-bold tracking-widest ${roundTimeLeft <= 2 ? 'text-red-500' : 'text-white'}`}>
+                  00:0{roundTimeLeft}
                 </span>
              </div>
 
@@ -520,18 +452,13 @@ export default function App() {
                    <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300" 
                         style={{ width: `${(completedRounds / gameState.rounds.length) * 100}%` }}></div>
                 </div>
-                <span className="text-[9px] mt-1 text-gray-500 font-mono">ROUND {currentRoundIndex + 1} / {gameState.rounds.length}</span>
+                <span className="text-[9px] mt-1 text-gray-500 font-mono uppercase">ROUND {currentRoundIndex + 1} / {gameState.rounds.length}</span>
              </div>
           </div>
         </div>
       </header>
       
-      <div className="container mx-auto px-4 py-8 flex-1 flex flex-col justify-center">
-        <div className="text-center mb-8">
-           <div className="inline-block border-2 border-[#00FF9D] text-[#00FF9D] px-4 py-1 font-mono text-xs uppercase mb-2 bg-[#00FF9D]/10">Current Objective</div>
-           <h2 className="text-3xl md:text-4xl font-heading text-white uppercase retro-text-shadow">Locate the AI Image</h2>
-        </div>
-        
+      <main className="container mx-auto px-4 py-8 flex-1 flex flex-col justify-center">
         <div className="max-w-4xl mx-auto w-full mb-24">
           {currentRound && (
              <div className="animate-in fade-in slide-in-from-right-8 duration-500" key={currentRound.id}>
@@ -542,37 +469,21 @@ export default function App() {
              </div>
           )}
         </div>
-      </div>
+      </main>
       
       <div className="fixed bottom-0 left-0 w-full p-6 bg-gradient-to-t from-[#13111C] via-[#13111C]/95 to-transparent z-40 border-t border-white/5 backdrop-blur-sm">
         <div className="container mx-auto flex justify-center">
-          {!isLastRound ? (
             <button 
-              onClick={handleNextRound} 
+              onClick={() => handleNextRound()} 
               disabled={!isCurrentRoundAnswered} 
               className={`group pointer-events-auto game-btn px-12 py-5 font-heading text-xl uppercase tracking-widest transition-all duration-300 flex items-center gap-4
                 ${isCurrentRoundAnswered 
                   ? 'bg-white text-black hover:bg-[#00FF9D] shadow-[0_0_20px_rgba(255,255,255,0.3)]' 
                   : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}`}
             >
-              <span>Next Sequence</span>
-              <ArrowRight className={`w-6 h-6 transition-transform ${isCurrentRoundAnswered ? 'group-hover:translate-x-2' : ''}`} />
+              <span>{isLastRound ? 'Submit Results' : 'Next Sequence'}</span>
+              {isLastRound ? <CheckCircle className="w-6 h-6" /> : <ArrowRight className={`w-6 h-6 transition-transform ${isCurrentRoundAnswered ? 'group-hover:translate-x-2' : ''}`} />}
             </button>
-          ) : (
-            <button 
-              onClick={finishGame} 
-              disabled={!isCurrentRoundAnswered} 
-              className={`group pointer-events-auto game-btn px-16 py-5 font-heading text-2xl uppercase tracking-widest transition-all duration-500 transform 
-                ${isCurrentRoundAnswered 
-                  ? 'bg-[#00FF9D] text-black hover:scale-105 shadow-[0_0_30px_rgba(0,255,157,0.4)]' 
-                  : 'bg-gray-800 text-gray-500 opacity-50 cursor-not-allowed'}`}
-            >
-              <div className="flex items-center gap-3">
-                 <CheckCircle size={24} />
-                 <span>Submit Results</span>
-              </div>
-            </button>
-          )}
         </div>
       </div>
     </div>
